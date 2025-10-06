@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"net/url"
 	"os"
@@ -25,8 +24,8 @@ type BotAPI struct {
 	Debug  bool   `json:"debug"`
 	Buffer int    `json:"buffer"`
 
-	Self   User         `json:"-"`
-	Client *http.Client `json:"-"`
+	Self            User         `json:"-"`
+	Client          *http.Client `json:"-"`
 	shutdownChannel chan interface{}
 }
 
@@ -43,9 +42,9 @@ func NewBotAPI(token string) (*BotAPI, error) {
 // It requires a token, provided by @BotFather on Telegram.
 func NewBotAPIWithClient(token string, client *http.Client) (*BotAPI, error) {
 	bot := &BotAPI{
-		Token:  token,
-		Client: client,
-		Buffer: 100,
+		Token:           token,
+		Client:          client,
+		Buffer:          100,
 		shutdownChannel: make(chan interface{}),
 	}
 
@@ -72,6 +71,7 @@ func (bot *BotAPI) MakeRequest(endpoint string, params url.Values) (APIResponse,
 	var apiResp APIResponse
 	bytes, err := bot.decodeAPIResponse(resp.Body, &apiResp)
 	if err != nil {
+		log.Printf("ERROR: Error decoding JSON API response: %s error: %s", apiResp, err)
 		return apiResp, err
 	}
 
@@ -84,6 +84,7 @@ func (bot *BotAPI) MakeRequest(endpoint string, params url.Values) (APIResponse,
 		if apiResp.Parameters != nil {
 			parameters = *apiResp.Parameters
 		}
+		log.Printf("WARNING: API Response 'ok' flag not set: %s error: %s", apiResp, err)
 		return apiResp, Error{apiResp.Description, parameters}
 	}
 
@@ -101,7 +102,7 @@ func (bot *BotAPI) decodeAPIResponse(responseBody io.Reader, resp *APIResponse) 
 	}
 
 	// if debug, read reponse body
-	data, err := ioutil.ReadAll(responseBody)
+	data, err := io.ReadAll(responseBody)
 	if err != nil {
 		return
 	}
@@ -170,7 +171,7 @@ func (bot *BotAPI) UploadFile(endpoint string, params map[string]string, fieldna
 			break
 		}
 
-		data, err := ioutil.ReadAll(f.Reader)
+		data, err := io.ReadAll(f.Reader)
 		if err != nil {
 			return APIResponse{}, err
 		}
@@ -201,7 +202,7 @@ func (bot *BotAPI) UploadFile(endpoint string, params map[string]string, fieldna
 	}
 	defer res.Body.Close()
 
-	bytes, err := ioutil.ReadAll(res.Body)
+	bytes, err := io.ReadAll(res.Body)
 	if err != nil {
 		return APIResponse{}, err
 	}
@@ -414,9 +415,36 @@ func (bot *BotAPI) GetUpdates(config UpdateConfig) ([]Update, error) {
 	if config.Timeout > 0 {
 		v.Add("timeout", strconv.Itoa(config.Timeout))
 	}
+	// Add all allowed updates.
+	v.Add("allowed_updates", strings.Join([]string{
+		`"business_connection"`,
+		`"business_message"`,
+		`"callback_query"`,
+		`"channel_post"`,
+		`"chat_boost"`,
+		`"chat_join_request"`,
+		`"chat_member"`,
+		`"chosen_inline_result"`,
+		`"deleted_business_messages"`,
+		`"edited_business_message"`,
+		`"edited_channel_post"`,
+		`"edited_message"`,
+		`"inline_query"`,
+		`"message"`,
+		`"message_reaction"`,
+		`"message_reaction_count"`,
+		`"my_chat_member"`,
+		`"poll"`,
+		`"poll_answer"`,
+		`"pre_checkout_query"`,
+		`"purchased_paid_media"`,
+		`"removed_chat_boost"`,
+		`"shipping_query"`,
+		`"update_id"`}, ","))
 
 	resp, err := bot.MakeRequest("getUpdates", v)
 	if err != nil {
+		log.Printf("ERROR: GetUpdates failed: %v\n", err)
 		return []Update{}, err
 	}
 
@@ -490,7 +518,7 @@ func (bot *BotAPI) GetUpdatesChan(config UpdateConfig) (UpdatesChannel, error) {
 				return
 			default:
 			}
-			
+
 			updates, err := bot.GetUpdates(config)
 			if err != nil {
 				log.Println(err)
@@ -503,6 +531,7 @@ func (bot *BotAPI) GetUpdatesChan(config UpdateConfig) (UpdatesChannel, error) {
 			for _, update := range updates {
 				if update.UpdateID >= config.Offset {
 					config.Offset = update.UpdateID + 1
+					//log.Printf("DEBUG: Confirmed new offset: %d\n", config.Offset)
 					ch <- update
 				}
 			}
@@ -525,12 +554,14 @@ func (bot *BotAPI) ListenForWebhook(pattern string) UpdatesChannel {
 	ch := make(chan Update, bot.Buffer)
 
 	http.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
-		bytes, _ := ioutil.ReadAll(r.Body)
+		bytes, _ := io.ReadAll(r.Body)
 
 		var update Update
-		json.Unmarshal(bytes, &update)
-
-		ch <- update
+		if err := json.Unmarshal(bytes, &update); err != nil {
+			log.Println("ERROR: json.Unmarshal failed: %v", err)
+		} else {
+			ch <- update
+		}
 	})
 
 	return ch
@@ -731,9 +762,9 @@ func (bot *BotAPI) UnbanChatMember(config ChatMemberConfig) (APIResponse, error)
 }
 
 // RestrictChatMember to restrict a user in a supergroup. The bot must be an
-//administrator in the supergroup for this to work and must have the
-//appropriate admin rights. Pass True for all boolean parameters to lift
-//restrictions from a user. Returns True on success.
+// administrator in the supergroup for this to work and must have the
+// appropriate admin rights. Pass True for all boolean parameters to lift
+// restrictions from a user. Returns True on success.
 func (bot *BotAPI) RestrictChatMember(config RestrictChatMemberConfig) (APIResponse, error) {
 	v := url.Values{}
 
@@ -831,7 +862,7 @@ func (bot *BotAPI) AnswerShippingQuery(config ShippingConfig) (APIResponse, erro
 
 	v.Add("shipping_query_id", config.ShippingQueryID)
 	v.Add("ok", strconv.FormatBool(config.OK))
-	if config.OK == true {
+	if config.OK {
 		data, err := json.Marshal(config.ShippingOptions)
 		if err != nil {
 			return APIResponse{}, err
@@ -852,7 +883,7 @@ func (bot *BotAPI) AnswerPreCheckoutQuery(config PreCheckoutConfig) (APIResponse
 
 	v.Add("pre_checkout_query_id", config.PreCheckoutQueryID)
 	v.Add("ok", strconv.FormatBool(config.OK))
-	if config.OK != true {
+	if !config.OK {
 		v.Add("error", config.ErrorMessage)
 	}
 

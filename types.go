@@ -37,6 +37,7 @@ type Update struct {
 	CallbackQuery      *CallbackQuery      `json:"callback_query"`
 	ShippingQuery      *ShippingQuery      `json:"shipping_query"`
 	PreCheckoutQuery   *PreCheckoutQuery   `json:"pre_checkout_query"`
+	ChatMember         *ChatMemberUpdate   `json:"chat_member"` // optional
 }
 
 // UpdatesChannel is the channel for getting updates.
@@ -445,6 +446,28 @@ type CallbackQuery struct {
 type ForceReply struct {
 	ForceReply bool `json:"force_reply"`
 	Selective  bool `json:"selective"` // optional
+}
+
+// NewChatMember contains information about a user joining the chat.
+type NewChatMember struct {
+	User   *User  `json:"user"`
+	Status string `json:"status"`
+}
+
+// OldChatMember contains information about a user leaving the chat.
+type OldChatMember struct {
+	User   *User  `json:"user"`
+	Status string `json:"status"`
+}
+
+// ChatMemberUpdate contains the chat member information in an Update message.
+type ChatMemberUpdate struct {
+	Chat               *Chat          `json:"chat"`
+	From               *User          `json:"from"`
+	Date               int            `json:"date"`
+	OldChatMember      *OldChatMember `json:"old_chat_member"`
+	NewChatMember      *NewChatMember `json:"new_chat_member"`
+	CreatesJoinRequest bool           `json:"creates_join_request"`
 }
 
 // ChatMember is information about a member in a chat.
